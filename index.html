@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pembaca Kanji</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600&family=Inter:wght@400;500&display=swap">
+<style>
+:root{--bg:#f2f2f0;--paper:#fff;--ink:#111;--mute:#6b6b6b;--line:#d9d9d6}
+@media (prefers-color-scheme:dark){:root{--bg:#141414;--ink:#f2f2f0;--mute:#9a9a96;--line:#333}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--bg);border-bottom:1px solid var(--line)}
+h1{font:600 18px "Noto Serif JP",serif;margin:0 auto 0 0}
+button,label.btn{font:inherit;color:var(--bg);background:var(--ink);border:0;padding:8px 16px;border-radius:4px;cursor:pointer}
+button:focus-visible,label.btn:focus-within{outline:2px solid var(--mute);outline-offset:2px}
+#status{color:var(--mute);font-size:13px}
+#drop{margin:48px auto;max-width:520px;padding:48px 24px;border:1px dashed var(--mute);border-radius:6px;text-align:center;color:var(--mute)}
+#drop.over{border-color:var(--ink);color:var(--ink)}
+#pages{display:flex;flex-direction:column;align-items:center;gap:16px;padding:16px 8px 80px}
+.page{position:relative;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25);max-width:100%}
+.page canvas{display:block;width:100%;height:auto}
+.textLayer{position:absolute;inset:0;overflow:hidden;line-height:1}
+.textLayer span{position:absolute;white-space:pre;color:transparent;transform-origin:0 0;cursor:text}
+.textLayer ::selection{background:rgba(0,0,0,.28)}
+#pop{position:fixed;z-index:20;display:none;max-width:min(360px,92vw);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:6px;font-family:"Noto Serif JP",serif;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+#pop .yomi{font-size:20px;line-height:1.5}
+#pop .rb{margin-top:6px;padding-top:6px;border-top:1px solid rgba(128,128,128,.5);font-size:15px;line-height:2}
+#pop rt{font-size:.6em}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pembaca Kanji</h1>
+  <span id="status">Memuat kamus…</span>
+  <label class="btn">Buka PDF<input id="file" type="file" accept="application/pdf" hidden></label>
+</header>
+
+<div id="drop">Tarik file PDF ke sini, atau klik “Buka PDF”.<br>Lalu blok kanji untuk melihat hiragananya.</div>
+<main id="pages"></main>
+<div id="pop" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const $ = id => document.getElementById(id);
+const status = $("status"), pop = $("pop"), pages = $("pages"), drop = $("drop");
+const KANJI = /[\u3400-\u4dbf\u4e00-\u9fff]/;
+
+// Kamus bahasa Jepang
+const kuroshiro = new Kuroshiro();
+const ready = kuroshiro.init(new KuromojiAnalyzer({ dictPath: "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/" }))
+  .then(() => { status.textContent = "Kamus siap"; })
+  .catch(() => { status.textContent = "Kamus gagal dimuat. Cek koneksi internet."; });
+
+// Buka PDF
+$("file").addEventListener("change", e => e.target.files[0] && openPdf(e.target.files[0]));
+["dragover", "dragenter"].forEach(t => document.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => document.addEventListener(t, () => drop.classList.remove("over")));
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f && f.type === "application/pdf") openPdf(f);
+});
+
+async function openPdf(file) {
+  hidePop();
+  pages.innerHTML = "";
+  drop.style.display = "none";
+  status.textContent = "Membuka " + file.name + "…";
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    let hasText = false;
+    for (let n = 1; n <= pdf.numPages; n++) {
+      status.textContent = "Halaman " + n + " dari " + pdf.numPages;
+      hasText = (await renderPage(await pdf.getPage(n))) || hasText;
+    }
+    status.textContent = hasText
+      ? file.name + " (" + pdf.numPages + " halaman)"
+      : "PDF ini berupa gambar (hasil scan), teksnya tidak bisa diblok.";
+  } catch (err) {
+    status.textContent = "PDF gagal dibuka.";
+    drop.style.display = "";
+  }
+}
+
+async function renderPage(page) {
+  const dpr = window.devicePixelRatio || 1;
+  const vp = page.getViewport({ scale: 1.5 });
+  const wrap = document.createElement("div");
+  wrap.className = "page";
+  wrap.style.width = vp.width + "px";
+
+  const canvas = document.createElement("canvas");
+  canvas.width = vp.width * dpr;
+  canvas.height = vp.height * dpr;
+  wrap.appendChild(canvas);
+
+  const layer = document.createElement("div");
+  layer.className = "textLayer";
+  layer.style.setProperty("--scale-factor", vp.scale);
+  wrap.appendChild(layer);
+  pages.appendChild(wrap);
+
+  await page.render({
+    canvasContext: canvas.getContext("2d"),
+    viewport: vp,
+    transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null
+  }).promise;
+
+  const content = await page.getTextContent();
+  await pdfjsLib.renderTextLayer({ textContentSource: content, container: layer, viewport: vp }).promise;
+  return content.items.length > 0;
+}
+
+// Pop up hiragana saat teks diblok
+let token = 0;
+document.addEventListener("mouseup", () => setTimeout(showReading, 10));
+document.addEventListener("touchend", () => setTimeout(showReading, 300));
+document.addEventListener("mousedown", e => { if (!pop.contains(e.target)) hidePop(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") hidePop(); });
+
+async function showReading() {
+  const sel = window.getSelection();
+  const text = sel.toString().trim();
+  if (!text || sel.rangeCount === 0 || !KANJI.test(text)) return;
+  if (!sel.anchorNode.parentElement.closest(".textLayer")) return;
+
+  const rect = sel.getRangeAt(0).getBoundingClientRect();
+  const my = ++token;
+  await ready;
+  try {
+    const hira = await kuroshiro.convert(text, { to: "hiragana" });
+    const ruby = await kuroshiro.convert(text, { to: "hiragana", mode: "furigana" });
+    if (my !== token) return;
+    pop.innerHTML = '<div class="yomi"></div><div class="rb"></div>';
+    pop.firstChild.textContent = hira;
+    pop.lastChild.innerHTML = ruby;
+    place(rect);
+  } catch (e) { /* abaikan */ }
+}
+
+function place(rect) {
+  pop.style.display = "block";
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = rect.left + rect.width / 2 - w / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  let top = rect.top - h - 10;
+  if (top < 60) top = rect.bottom + 10;
+  pop.style.left = left + "px";
+  pop.style.top = top + "px";
+}
+
+function hidePop() { token++; pop.style.display = "none"; }
+</script>
+</body>
+</html>
