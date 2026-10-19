@@ -261,7 +261,11 @@ async function startCapture() {
   if (capturing || ocrBusy || busy) return;
   capturing = true;
   try {
-    if (win.isVisible()) { win.hide(); await sleep(150); } // supaya gelembung lama tidak ikut terfoto
+    // sembunyikan widget dan gelembung lama supaya tidak ikut terfoto
+    widgetWasVisible = !!(widget && widget.isVisible());
+    if (widgetWasVisible) widget.hide();
+    if (win.isVisible()) win.hide();
+    await sleep(150);
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
@@ -275,6 +279,7 @@ async function startCapture() {
     await openSelector(display, src.thumbnail);
   } catch (e) {
     capturing = false;
+    restoreWidget();
     console.error("[kanji-overlay] gagal mengambil layar:", e);
     showPayload({ kind: "msg", text: "Gagal mengambil layar: " + e.message }, cursorAnchor());
   }
@@ -296,7 +301,7 @@ async function openSelector(display, full) {
   });
   selector.setAlwaysOnTop(true, "screen-saver");
   selector.setBounds(display.bounds);
-  selector.on("closed", () => { selector = null; capturing = false; });
+  selector.on("closed", () => { selector = null; capturing = false; restoreWidget(); });
   await selector.loadFile(path.join(__dirname, "select.html"));
   selector.webContents.send("init", {
     dataUrl: "data:image/jpeg;base64," + full.toJPEG(80).toString("base64"),
@@ -387,6 +392,98 @@ ipcMain.on("measured", (_e, { w, h }) => {
 
 ipcMain.on("close", () => { if (win) win.hide(); });
 
+// ---------- Widget melayang di tepi layar ----------
+const SETTINGS_FILE = path.join(__dirname, "settings.json");
+const WIDGET_W = 72;
+const WIDGET_H = 250;
+let widget = null;
+let widgetWasVisible = false;
+let widgetDragStart = null;
+let settings = { side: "right", y: null };
+try { settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) }; } catch (_) { }
+
+function saveSettings() {
+  try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings)); } catch (_) { }
+}
+
+function widgetCenter() {
+  const b = widget.getBounds();
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+}
+
+function placeWidget(display) {
+  const wa = (display || screen.getPrimaryDisplay()).workArea;
+  const x = settings.side === "left" ? wa.x : wa.x + wa.width - WIDGET_W;
+  let y = Number.isFinite(settings.y) ? settings.y : wa.y + Math.round((wa.height - WIDGET_H) / 2);
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - WIDGET_H));
+  widget.setBounds({ x, y, width: WIDGET_W, height: WIDGET_H });
+  widget.webContents.send("side", settings.side);
+}
+
+async function createWidget() {
+  widget = new BrowserWindow({
+    width: WIDGET_W, height: WIDGET_H, show: false,
+    frame: false, transparent: true, backgroundColor: "#00000000",
+    resizable: false, skipTaskbar: true, alwaysOnTop: true,
+    focusable: false, hasShadow: false, fullscreenable: false,
+    ...(IS_MAC ? { type: "panel" } : {}),   // tidak mengambil fokus dari aplikasi lain
+    webPreferences: {
+      preload: path.join(__dirname, "widget-preload.js"),
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  widget.setAlwaysOnTop(true, "screen-saver");
+  if (IS_MAC) widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  await widget.loadFile(path.join(__dirname, "widget.html"));
+  placeWidget();
+  widget.showInactive();
+}
+
+function toggleWidget() {
+  if (!widget) return;
+  if (widget.isVisible()) widget.hide();
+  else { placeWidget(screen.getDisplayNearestPoint(screen.getCursorScreenPoint())); widget.showInactive(); }
+}
+
+function restoreWidget() {
+  if (widgetWasVisible && widget) widget.showInactive();
+  widgetWasVisible = false;
+}
+
+const fromWidget = (e) => widget && e.sender === widget.webContents;
+
+ipcMain.on("widget:action", (e, a) => {
+  if (!fromWidget(e)) return;
+  if (a === "read") trigger();
+  else if (a === "capture") startCapture();
+  else if (a === "hide") widget.hide();
+  else if (a === "flip") {
+    settings.side = settings.side === "right" ? "left" : "right";
+    saveSettings();
+    placeWidget(screen.getDisplayNearestPoint(widgetCenter()));
+  }
+});
+
+ipcMain.on("widget:dragstart", (e) => {
+  if (fromWidget(e)) widgetDragStart = widget.getPosition();
+});
+ipcMain.on("widget:drag", (e, d) => {
+  if (!fromWidget(e) || !widgetDragStart || !Number.isFinite(d?.dx) || !Number.isFinite(d?.dy)) return;
+  widget.setPosition(Math.round(widgetDragStart[0] + d.dx), Math.round(widgetDragStart[1] + d.dy));
+});
+ipcMain.on("widget:dragend", (e) => {
+  if (!fromWidget(e) || !widgetDragStart) return;
+  widgetDragStart = null;
+  const c = widgetCenter();
+  const d = screen.getDisplayNearestPoint(c);
+  // menempel ke sisi layar yang paling dekat
+  settings.side = c.x < d.workArea.x + d.workArea.width / 2 ? "left" : "right";
+  settings.y = widget.getBounds().y;
+  saveSettings();
+  placeWidget(d);
+});
+
 // ---------- Jendela transparan ----------
 async function createWindow() {
   win = new BrowserWindow({
@@ -405,7 +502,7 @@ async function createWindow() {
   await win.loadFile(path.join(__dirname, "popup.html"));
 }
 
-console.log("[kanji-overlay] build 8");
+console.log("[kanji-overlay] build 9");
 if (!app.requestSingleInstanceLock()) {
   console.log("[kanji-overlay] Sudah ada instance lain yang berjalan (kode lama?). " +
     "Tutup dulu dengan: taskkill /F /IM electron.exe  lalu jalankan lagi.");
@@ -416,6 +513,8 @@ app.whenReady().then(async () => {
   if (IS_MAC && app.dock) app.dock.hide();
   startHelper();
   await createWindow();
+  await createWidget();
+  globalShortcut.register("Control+Alt+W", toggleWidget);
   const ok = globalShortcut.register(SHOW_KEY, trigger);
   const ok2 = globalShortcut.register(CAPTURE_KEY, startCapture);
   globalShortcut.register(QUIT_KEY, () => app.quit());
@@ -423,7 +522,7 @@ app.whenReady().then(async () => {
     ? `Kanji Overlay aktif. Blok teks lalu tekan ${SHOW_KEY}.`
     : `Gagal mendaftarkan ${SHOW_KEY}. Kemungkinan dipakai aplikasi lain.`);
   console.log(ok2
-    ? `Untuk teks di gambar, tekan ${CAPTURE_KEY} lalu tarik kotak. Keluar: ${QUIT_KEY}.`
+    ? `Untuk teks di gambar, tekan ${CAPTURE_KEY} lalu tarik kotak. Widget: Ctrl+Alt+W. Keluar: ${QUIT_KEY}.`
     : `Gagal mendaftarkan ${CAPTURE_KEY}. Kemungkinan dipakai aplikasi lain.`);
   // siapkan OCR di latar belakang (pertama kali butuh internet untuk mengunduh data bahasa Jepang)
   getOcrWorker()
