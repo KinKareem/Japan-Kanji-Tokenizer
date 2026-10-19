@@ -1,0 +1,48 @@
+* { box-sizing: border-box; margin: 0; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden; background: #000;
+  cursor: crosshair; user-select: none;
+  font-family: system-ui, "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+#bg { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: fill; pointer-events: none; -webkit-user-drag: none; }
+#dim { position: fixed; inset: 0; background: rgba(0, 0, 0, .4); pointer-events: none; }
+
+#hint {
+  position: fixed; top: 28px; left: 50%; transform: translateX(-50%);
+  padding: 10px 20px; border-radius: 999px; pointer-events: none;
+  background: #121214; color: #f7f7f5; font-size: 14px; letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+
+/* Kotak pilihan: bagian luar digelapkan lewat box-shadow raksasa */
+#box {
+  position: fixed; display: none; cursor: move;
+  border: 2px solid #fff; outline: 1px solid rgba(0, 0, 0, .55);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
+}
+.h { position: absolute; width: 12px; height: 12px; background: #fff; border: 1px solid #111; border-radius: 3px; }
+.h[data-d="nw"] { left: -8px; top: -8px; cursor: nwse-resize; }
+.h[data-d="n"]  { left: calc(50% - 6px); top: -8px; cursor: ns-resize; }
+.h[data-d="ne"] { right: -8px; top: -8px; cursor: nesw-resize; }
+.h[data-d="e"]  { right: -8px; top: calc(50% - 6px); cursor: ew-resize; }
+.h[data-d="se"] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.h[data-d="s"]  { left: calc(50% - 6px); bottom: -8px; cursor: ns-resize; }
+.h[data-d="sw"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.h[data-d="w"]  { left: -8px; top: calc(50% - 6px); cursor: ew-resize; }
+
+#size {
+  position: absolute; left: 0; top: -32px; padding: 3px 9px; border-radius: 7px;
+  background: #121214; color: #f7f7f5; font-size: 12px; white-space: nowrap; pointer-events: none;
+}
+#size.in { top: 6px; left: 6px; }
+
+#bar {
+  position: fixed; display: none; gap: 6px; padding: 6px; border-radius: 12px;
+  background: #121214; box-shadow: 0 6px 18px rgba(0, 0, 0, .4); cursor: default;
+}
+#bar button {
+  font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .25); background: transparent; color: #f7f7f5;
+}
+#bar button#ok { background: #f7f7f5; color: #121214; border-color: #f7f7f5; font-weight: 600; }
+#bar button:hover { filter: brightness(.9); }

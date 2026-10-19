@@ -1,0 +1,210 @@
+:root {
+  --pad: 40px;
+  --tail: 12px;
+  --bg: #121214;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: pointer;
+}
+
+body {
+  font-family: "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+
+#stage {
+  position: fixed;
+  left: var(--pad);
+  top: calc(var(--pad) + var(--tail));
+  width: max-content;
+  max-width: 500px;
+}
+
+/* Gelembung chat */
+#bubble {
+  position: relative;
+  padding: 18px 22px 26px;
+  background: var(--bg);
+  color: #f7f7f5;
+  border-radius: 18px;
+  filter: drop-shadow(0 4px 9px rgba(0, 0, 0, .3));
+  opacity: 0;
+  transform: scale(.55) translateY(var(--dy, 8px));
+  transform-origin: var(--tail-x, 50%) 100%;
+}
+
+#bubble.below {
+  transform-origin: var(--tail-x, 50%) 0;
+}
+
+#bubble.in {
+  opacity: 1;
+  transform: none;
+  transition: transform .42s cubic-bezier(.34, 1.56, .64, 1), opacity .18s ease-out;
+}
+
+#bubble.out {
+  opacity: 0;
+  transform: scale(.8) translateY(var(--dy, 8px));
+  transition: transform .16s ease-in, opacity .14s ease-in;
+}
+
+/* Ekor gelembung menunjuk ke kursor */
+#bubble::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--tail-x, 50%) - 7px);
+  width: 14px;
+  height: 14px;
+  background: var(--bg);
+  border-radius: 3px;
+  transform: rotate(45deg);
+}
+
+#bubble.above::after {
+  bottom: -6px;
+}
+
+#bubble.below::after {
+  top: -6px;
+}
+
+/* Isi: hiragana per kata, dipisah garis tipis, muncul huruf demi huruf */
+.main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 6px;
+  font-size: 25px;
+  line-height: 1.45;
+  font-weight: 500;
+  letter-spacing: .03em;
+}
+
+.seg {
+  display: inline-block;
+}
+
+.seg span {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(5px);
+  animation: rise .32s ease-out forwards;
+  animation-delay: calc(var(--i) * 22ms + .12s);
+}
+
+.sep {
+  flex: none;
+  width: 2px;
+  height: .85em;
+  margin: 0 14px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .32);
+  opacity: 0;
+  animation: fade .25s ease-out forwards;
+  animation-delay: calc(var(--i) * 22ms + .1s);
+}
+
+.ruby {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, .14);
+  text-align: center;
+  font-size: 22px;
+  line-height: 2.6;
+  letter-spacing: .04em;
+  color: #e4e4df;
+  opacity: 0;
+  animation: fade .3s ease-out .4s forwards;
+}
+
+rt {
+  font-size: .55em;
+  color: #fff;
+  opacity: .92;
+  letter-spacing: .06em;
+}
+
+.trans {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, .14);
+  font-family: system-ui, "Segoe UI", sans-serif;
+  font-size: 18px;
+  line-height: 1.6;
+  text-align: center;
+  color: #f0f0ec;
+  opacity: 0;
+  animation: fade .3s ease-out .55s forwards;
+}
+
+.trans.muted {
+  font-size: 13px;
+  color: #8d8d88;
+}
+
+.msg {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #d6d6d1;
+}
+
+/* Garis waktu tutup otomatis */
+.timer {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .28);
+  transform-origin: left;
+}
+
+#bubble.in .timer {
+  animation: drain var(--life, 12s) linear forwards;
+}
+
+@keyframes rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes drain {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  #bubble,
+  #bubble.in,
+  #bubble.out {
+    transform: none;
+    transition: opacity .1s;
+  }
+
+  .seg span,
+  .sep {
+    animation-duration: .01s;
+    animation-delay: 0s;
+  }
+}

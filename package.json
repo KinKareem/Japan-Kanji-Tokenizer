@@ -1,0 +1,17 @@
+{
+  "name": "kanji-overlay",
+  "version": "0.3.0",
+  "description": "Blok teks Jepang di aplikasi apa pun, tekan Ctrl+Alt+K, muncul gelembung hiragana.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "kuroshiro": "^1.2.0",
+    "kuroshiro-analyzer-kuromoji": "^1.1.0",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0"
+  }
+}
