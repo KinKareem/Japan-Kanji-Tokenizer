@@ -200,12 +200,89 @@ function cursorAnchor() {
   return { x: c.x, yTop: c.y, yBottom: c.y, gapBelow: 22 };
 }
 
+// ---------- Melacak area yang baru saja diblok (lewat gerakan mouse) ----------
+// Electron tidak punya event mouse global. Di Windows, proses PowerShell kecil
+// memantau tombol kiri mouse; posisi kursor dibaca di sini saat tombol ditekan/dilepas.
+const WATCH_SCRIPT = `
+Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int k);' -Name M -Namespace W
+$prev = $false
+while ($true) {
+  $d = ([W.M]::GetAsyncKeyState(1) -band 0x8000) -ne 0
+  if ($d -ne $prev) {
+    $prev = $d
+    if ($d) { [Console]::Out.WriteLine('down') } else { [Console]::Out.WriteLine('up') }
+  }
+  Start-Sleep -Milliseconds 12
+}`;
+
+const track = { down: null, release: null }; // release = { from, to, t }
+let watcher = null;
+
+function insideOurWindows(p) {
+  return [widget, win, selector].some((w) => {
+    if (!w || w.isDestroyed() || !w.isVisible()) return false;
+    const b = w.getBounds();
+    return p.x >= b.x - 6 && p.x <= b.x + b.width + 6 && p.y >= b.y - 6 && p.y <= b.y + b.height + 6;
+  });
+}
+
+function onMouseDown() {
+  const p = screen.getCursorScreenPoint();
+  track.down = insideOurWindows(p) ? null : p;
+}
+
+function onMouseUp() {
+  const p = screen.getCursorScreenPoint();
+  if (track.down && !insideOurWindows(p)) track.release = { from: track.down, to: p, t: Date.now() };
+  track.down = null;
+}
+
+function startMouseTracker() {
+  if (IS_WIN) {
+    watcher = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WATCH_SCRIPT], {
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    watcher.stdout.on("data", (d) => {
+      for (const line of d.toString().split(/\r?\n/)) {
+        if (line === "down") onMouseDown();
+        else if (line === "up") onMouseUp();
+      }
+    });
+  } else {
+    // Mac/Linux: tanpa event tombol, pakai titik terakhir saat kursor berhenti sejenak
+    let last = null, still = 0;
+    setInterval(() => {
+      const p = screen.getCursorScreenPoint();
+      if (last && Math.abs(p.x - last.x) <= 3 && Math.abs(p.y - last.y) <= 3) still++;
+      else still = 0;
+      last = p;
+      if (still === 3 && !insideOurWindows(p)) track.release = { from: p, to: p, t: Date.now() };
+    }, 50);
+  }
+}
+
+// Titik yang ditunjuk gelembung: di atas area yang diblok (jika diketahui), kalau tidak di kursor
+function pickAnchor(fromWidget) {
+  const cur = cursorAnchor();
+  const r = track.release;
+  if (!r) return cur;
+  const near = Math.hypot(cur.x - r.to.x, cur.yTop - r.to.y) < 150;
+  if (!fromWidget && !near) return cur; // lewat shortcut dengan kursor sudah jauh dari blok: pakai kursor
+  return {
+    x: (r.from.x + r.to.x) / 2,
+    yTop: Math.min(r.from.y, r.to.y) - 16,
+    yBottom: Math.max(r.from.y, r.to.y) + 16,
+    gapBelow: 6,
+  };
+}
+
 // ---------- Mode 1: teks yang diblok (Ctrl+Alt+K) ----------
-async function trigger() {
+async function trigger(fromWidget = false) {
   if (busy || capturing || ocrBusy) return;
   busy = true;
   let step = "membaca posisi kursor";
-  const anchor = cursorAnchor();
+  const anchor = pickAnchor(fromWidget);
   try {
     step = "menyalin teks yang diblok";
     const text = await readSelection();
@@ -399,7 +476,7 @@ const WIDGET_H = 250;
 let widget = null;
 let widgetWasVisible = false;
 let widgetDragStart = null;
-let settings = { side: "right", y: null };
+let settings = { x: null, y: null };
 try { settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) }; } catch (_) { }
 
 function saveSettings() {
@@ -411,18 +488,31 @@ function widgetCenter() {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
 
-function placeWidget(display) {
-  const wa = (display || screen.getPrimaryDisplay()).workArea;
-  const x = settings.side === "left" ? wa.x : wa.x + wa.width - WIDGET_W;
-  let y = Number.isFinite(settings.y) ? settings.y : wa.y + Math.round((wa.height - WIDGET_H) / 2);
-  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - WIDGET_H));
-  widget.setBounds({ x, y, width: WIDGET_W, height: WIDGET_H });
-  widget.webContents.send("side", settings.side);
+// Menjaga widget tetap berada di dalam area kerja layar terdekat
+function clampWidget(x, y) {
+  const wa = screen.getDisplayNearestPoint({ x: x + WIDGET_W / 2, y: y + WIDGET_H / 2 }).workArea;
+  return {
+    x: Math.round(Math.max(wa.x, Math.min(x, wa.x + wa.width - WIDGET_W))),
+    y: Math.round(Math.max(wa.y, Math.min(y, wa.y + wa.height - WIDGET_H))),
+  };
+}
+
+function placeWidget() {
+  let x = settings.x, y = settings.y;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    // posisi awal: tepi kanan layar utama, di tengah
+    const wa = screen.getPrimaryDisplay().workArea;
+    x = wa.x + wa.width - WIDGET_W - 16;
+    y = wa.y + Math.round((wa.height - WIDGET_H) / 2);
+  }
+  const p = clampWidget(x, y);
+  widget.setBounds({ x: p.x, y: p.y, width: WIDGET_W, height: WIDGET_H });
 }
 
 async function createWidget() {
   widget = new BrowserWindow({
     width: WIDGET_W, height: WIDGET_H, show: false,
+    minWidth: WIDGET_W, maxWidth: WIDGET_W, minHeight: WIDGET_H, maxHeight: WIDGET_H,
     frame: false, transparent: true, backgroundColor: "#00000000",
     resizable: false, skipTaskbar: true, alwaysOnTop: true,
     focusable: false, hasShadow: false, fullscreenable: false,
@@ -443,7 +533,7 @@ async function createWidget() {
 function toggleWidget() {
   if (!widget) return;
   if (widget.isVisible()) widget.hide();
-  else { placeWidget(screen.getDisplayNearestPoint(screen.getCursorScreenPoint())); widget.showInactive(); }
+  else { placeWidget(); widget.showInactive(); }
 }
 
 function restoreWidget() {
@@ -455,14 +545,9 @@ const fromWidget = (e) => widget && e.sender === widget.webContents;
 
 ipcMain.on("widget:action", (e, a) => {
   if (!fromWidget(e)) return;
-  if (a === "read") trigger();
+  if (a === "read") trigger(true);
   else if (a === "capture") startCapture();
   else if (a === "hide") widget.hide();
-  else if (a === "flip") {
-    settings.side = settings.side === "right" ? "left" : "right";
-    saveSettings();
-    placeWidget(screen.getDisplayNearestPoint(widgetCenter()));
-  }
 });
 
 ipcMain.on("widget:dragstart", (e) => {
@@ -470,18 +555,20 @@ ipcMain.on("widget:dragstart", (e) => {
 });
 ipcMain.on("widget:drag", (e, d) => {
   if (!fromWidget(e) || !widgetDragStart || !Number.isFinite(d?.dx) || !Number.isFinite(d?.dy)) return;
-  widget.setPosition(Math.round(widgetDragStart[0] + d.dx), Math.round(widgetDragStart[1] + d.dy));
+  widget.setBounds({
+    x: Math.round(widgetDragStart[0] + d.dx), y: Math.round(widgetDragStart[1] + d.dy),
+    width: WIDGET_W, height: WIDGET_H,
+  });
 });
 ipcMain.on("widget:dragend", (e) => {
   if (!fromWidget(e) || !widgetDragStart) return;
   widgetDragStart = null;
-  const c = widgetCenter();
-  const d = screen.getDisplayNearestPoint(c);
-  // menempel ke sisi layar yang paling dekat
-  settings.side = c.x < d.workArea.x + d.workArea.width / 2 ? "left" : "right";
-  settings.y = widget.getBounds().y;
+  const b = widget.getBounds();
+  const p = clampWidget(b.x, b.y);
+  widget.setBounds({ x: p.x, y: p.y, width: WIDGET_W, height: WIDGET_H });
+  settings.x = p.x;
+  settings.y = p.y;
   saveSettings();
-  placeWidget(d);
 });
 
 // ---------- Jendela transparan ----------
@@ -502,7 +589,7 @@ async function createWindow() {
   await win.loadFile(path.join(__dirname, "popup.html"));
 }
 
-console.log("[kanji-overlay] build 9");
+console.log("[kanji-overlay] build 12");
 if (!app.requestSingleInstanceLock()) {
   console.log("[kanji-overlay] Sudah ada instance lain yang berjalan (kode lama?). " +
     "Tutup dulu dengan: taskkill /F /IM electron.exe  lalu jalankan lagi.");
@@ -514,8 +601,9 @@ app.whenReady().then(async () => {
   startHelper();
   await createWindow();
   await createWidget();
+  startMouseTracker();
   globalShortcut.register("Control+Alt+W", toggleWidget);
-  const ok = globalShortcut.register(SHOW_KEY, trigger);
+  const ok = globalShortcut.register(SHOW_KEY, () => trigger(false));
   const ok2 = globalShortcut.register(CAPTURE_KEY, startCapture);
   globalShortcut.register(QUIT_KEY, () => app.quit());
   console.log(ok
@@ -534,5 +622,6 @@ app.on("window-all-closed", (e) => e.preventDefault());
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   if (ps) ps.kill();
+  if (watcher) watcher.kill();
   if (ocrWorkerPromise) ocrWorkerPromise.then((w) => w.terminate()).catch(() => { });
 });

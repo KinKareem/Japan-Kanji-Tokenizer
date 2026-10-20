@@ -1,7 +1,4 @@
 const pill = document.getElementById("pill");
-const grip = document.getElementById("grip");
-
-window.widget.onSide((s) => { pill.className = s; });
 
 document.querySelectorAll("button[data-a]").forEach((b) => {
   b.addEventListener("click", () => {
@@ -12,20 +9,32 @@ document.querySelectorAll("button[data-a]").forEach((b) => {
   });
 });
 
-// Geser widget secara manual (jendela tidak punya bingkai)
+// Tarik dari bagian mana pun pada pil (selain tombol) untuk memindahkan widget secara bebas
 let dragging = false, sx = 0, sy = 0;
-grip.addEventListener("pointerdown", (e) => {
-  grip.setPointerCapture(e.pointerId);
+pill.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || e.target.closest("button")) return;
+  pill.setPointerCapture(e.pointerId);
   dragging = true; sx = e.screenX; sy = e.screenY;
+  pill.classList.add("dragging");
   window.widget.dragStart();
 });
-grip.addEventListener("pointermove", (e) => {
-  if (dragging) window.widget.drag(e.screenX - sx, e.screenY - sy);
+let latest = null, raf = 0;
+function flush() {
+  raf = 0;
+  if (latest) { window.widget.drag(latest.dx, latest.dy); latest = null; }
+}
+pill.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  latest = { dx: e.screenX - sx, dy: e.screenY - sy };
+  if (!raf) raf = requestAnimationFrame(flush); // maksimal sekali per frame
 });
 const endDrag = () => {
   if (!dragging) return;
   dragging = false;
+  if (raf) { cancelAnimationFrame(raf); raf = 0; }
+  if (latest) { window.widget.drag(latest.dx, latest.dy); latest = null; }
+  pill.classList.remove("dragging");
   window.widget.dragEnd();
 };
-grip.addEventListener("pointerup", endDrag);
-grip.addEventListener("pointercancel", endDrag);
+pill.addEventListener("pointerup", endDrag);
+pill.addEventListener("pointercancel", endDrag);

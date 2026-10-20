@@ -1,40 +1,142 @@
-* { box-sizing: border-box; margin: 0; }
-html, body { background: transparent; overflow: hidden; user-select: none; }
-body { font-family: "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+body {
+  font-family: "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
 
 #pill {
-  position: fixed; top: 12px; bottom: 12px; width: 56px;
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  position: fixed;
+  top: 12px;
+  bottom: 12px;
+  left: 8px;
+  width: 56px;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   padding: 6px 4px 8px;
-  background: #121214; color: #f7f7f5;
+  background: #121214;
+  color: #f7f7f5;
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .35));
   opacity: .5;
   transition: opacity .2s ease, transform .25s cubic-bezier(.34, 1.56, .64, 1);
 }
-#pill:hover { opacity: 1; }
-#pill.right { right: 0; border-radius: 18px 0 0 18px; }
-#pill.left  { left: 0;  border-radius: 0 18px 18px 0; }
+
+#pill:hover {
+  opacity: 1;
+}
+
+#pill {
+  cursor: grab;
+}
+
+#pill.dragging {
+  cursor: grabbing;
+  opacity: 1;
+}
 
 #grip {
-  width: 100%; height: 20px; display: flex; align-items: center; justify-content: center; gap: 3px;
-  cursor: grab; touch-action: none;
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: grab;
+  touch-action: none;
 }
-#grip:active { cursor: grabbing; }
-#grip i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255, 255, 255, .45); }
+
+#grip:active {
+  cursor: grabbing;
+}
+
+#grip i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .45);
+}
 
 button {
-  width: 48px; padding: 8px 0 6px; border: 0; border-radius: 12px; cursor: pointer;
-  background: transparent; color: inherit; font: inherit;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  cursor: pointer;
+  width: 48px;
+  padding: 8px 0 6px;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   transition: background .15s, transform .12s;
 }
-button b { font-size: 21px; font-weight: 500; line-height: 1.1; }
-button span { font-size: 10px; opacity: .75; letter-spacing: .02em; }
-button:hover { background: rgba(255, 255, 255, .14); }
-button:active { transform: scale(.94); }
-button.flash { animation: flash .35s ease-out; }
-button.sm { padding: 6px 0; font-size: 16px; opacity: .8; }
-.sp { flex: 1; }
 
-@keyframes flash { 0% { background: rgba(255, 255, 255, .5); } 100% { background: transparent; } }
-@media (prefers-reduced-motion: reduce) { #pill, button { transition: none; } button.flash { animation: none; } }
+button b {
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+button span {
+  font-size: 10px;
+  opacity: .75;
+  letter-spacing: .02em;
+}
+
+button:hover {
+  background: rgba(255, 255, 255, .14);
+}
+
+button:active {
+  transform: scale(.94);
+}
+
+button.flash {
+  animation: flash .35s ease-out;
+}
+
+button.sm {
+  padding: 6px 0;
+  font-size: 16px;
+  opacity: .8;
+}
+
+.sp {
+  flex: 1;
+}
+
+@keyframes flash {
+  0% {
+    background: rgba(255, 255, 255, .5);
+  }
+
+  100% {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  #pill,
+  button {
+    transition: none;
+  }
+
+  button.flash {
+    animation: none;
+  }
+}
