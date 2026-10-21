@@ -1,10 +1,13 @@
 {
   "name": "kanji-overlay",
   "version": "0.3.0",
-  "description": "Blok teks Jepang di aplikasi apa pun, tekan Ctrl+Alt+K, muncul gelembung hiragana.",
+  "description": "Blok teks Jepang atau pilih area gambar, lalu muncul gelembung berisi hiragana, furigana, dan terjemahan.",
+  "author": "KinKareem",
+  "license": "MIT",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder"
   },
   "dependencies": {
     "kuroshiro": "^1.2.0",
@@ -12,6 +15,79 @@
     "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
-    "electron": "^44.9.0"
+    "electron": "*",
+    "electron-builder": "*"
+  },
+  "build": {
+    "appId": "com.kinkareem.kanjioverlay",
+    "productName": "Kanji Overlay",
+    "asar": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "select-preload.js",
+      "widget-preload.js",
+      "popup.html",
+      "popup.css",
+      "popup.js",
+      "select.html",
+      "select.css",
+      "select.js",
+      "widget.html",
+      "widget.css",
+      "widget.js",
+      "build/tray.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "artifactName": "Kanji-Overlay-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Kanji-Overlay-${version}-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.education"
+    },
+    "dmg": {
+      "artifactName": "Kanji-Overlay-${version}-mac-${arch}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "releaseType": "release"
+      }
+    ]
   }
 }

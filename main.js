@@ -1,7 +1,11 @@
-const { app, BrowserWindow, globalShortcut, screen, clipboard, ipcMain, desktopCapturer } = require("electron");
+const { app, BrowserWindow, globalShortcut, screen, clipboard, ipcMain, desktopCapturer, Tray, Menu, nativeImage } = require("electron");
 const { spawn, execFile } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+
+// Saat dipasang sebagai aplikasi, folder program tidak boleh ditulisi, jadi data pengguna
+// (settings.json dan data bahasa OCR) disimpan di folder data aplikasi.
+const DATA_DIR = app.isPackaged ? app.getPath("userData") : __dirname;
 
 const IS_MAC = process.platform === "darwin";
 const IS_WIN = process.platform === "win32";
@@ -10,7 +14,6 @@ const CAPTURE_KEY = "Control+Alt+J";
 const QUIT_KEY = "Control+Alt+Q";
 const PAD = 40;   // ruang untuk bayangan (harus sama dengan --pad di popup.css)
 const TAIL = 12;  // ruang untuk ekor gelembung (sama dengan --tail)
-const TARGET_LANG = "id"; // bahasa tujuan terjemahan (id = Indonesia, en = Inggris)
 const KANJI = /[\u3400-\u4dbf\u4e00-\u9fff]/;
 
 const K = require("kuroshiro");
@@ -160,7 +163,7 @@ async function segmentReadings(t) {
 async function translateText(t) {
   try {
     const url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=ja&tl="
-      + TARGET_LANG + "&q=" + encodeURIComponent(t);
+      + encodeURIComponent(settings.lang || "id") + "&q=" + encodeURIComponent(t);
     const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
@@ -314,7 +317,7 @@ function getOcrWorker() {
     ocrWorkerPromise = (async () => {
       const { createWorker } = require("tesseract.js");
       // data bahasa Jepang diunduh sekali, lalu disimpan di folder proyek (bukan drive C)
-      const cachePath = path.join(__dirname, "tessdata");
+      const cachePath = path.join(DATA_DIR, "tessdata");
       fs.mkdirSync(cachePath, { recursive: true });
       const w = await createWorker("jpn", 1, { cachePath });
       await w.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "0" });
@@ -470,13 +473,13 @@ ipcMain.on("measured", (_e, { w, h }) => {
 ipcMain.on("close", () => { if (win) win.hide(); });
 
 // ---------- Widget melayang di tepi layar ----------
-const SETTINGS_FILE = path.join(__dirname, "settings.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const WIDGET_W = 72;
-const WIDGET_H = 250;
+const WIDGET_H = 270;
 let widget = null;
 let widgetWasVisible = false;
 let widgetDragStart = null;
-let settings = { x: null, y: null };
+let settings = { x: null, y: null, lang: "id" };
 try { settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) }; } catch (_) { }
 
 function saveSettings() {
@@ -526,6 +529,7 @@ async function createWidget() {
   widget.setAlwaysOnTop(true, "screen-saver");
   if (IS_MAC) widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   await widget.loadFile(path.join(__dirname, "widget.html"));
+  widget.webContents.send("lang", settings.lang);
   placeWidget();
   widget.showInactive();
 }
@@ -541,6 +545,45 @@ function restoreWidget() {
   widgetWasVisible = false;
 }
 
+// ---------- Bahasa terjemahan ----------
+const LANGUAGES = [
+  ["id", "Indonesia"],
+  ["en", "Inggris (English)"],
+  ["ms", "Melayu (Bahasa Melayu)"],
+  ["zh-CN", "Mandarin Sederhana (简体)"],
+  ["zh-TW", "Mandarin Tradisional (繁體)"],
+  ["ko", "Korea (한국어)"],
+  ["ar", "Arab (العربية)"],
+  ["es", "Spanyol (Español)"],
+  ["fr", "Prancis (Français)"],
+  ["de", "Jerman (Deutsch)"],
+  ["pt", "Portugis (Português)"],
+  ["ru", "Rusia (Русский)"],
+  ["th", "Thai (ไทย)"],
+  ["vi", "Vietnam (Tiếng Việt)"],
+  ["hi", "Hindi (हिन्दी)"],
+  ["tr", "Turki (Türkçe)"],
+  ["nl", "Belanda (Nederlands)"],
+  ["it", "Italia (Italiano)"],
+];
+
+function langItems() {
+  return LANGUAGES.map(([code, name]) => ({
+    label: name, type: "radio", checked: settings.lang === code, click: () => setLang(code),
+  }));
+}
+
+function setLang(code) {
+  settings.lang = code;
+  saveSettings();
+  if (widget) widget.webContents.send("lang", code);
+  if (tray) tray.setContextMenu(buildTrayMenu());
+}
+
+function showLangMenu() {
+  Menu.buildFromTemplate(langItems()).popup({ window: widget });
+}
+
 const fromWidget = (e) => widget && e.sender === widget.webContents;
 
 ipcMain.on("widget:action", (e, a) => {
@@ -548,6 +591,7 @@ ipcMain.on("widget:action", (e, a) => {
   if (a === "read") trigger(true);
   else if (a === "capture") startCapture();
   else if (a === "hide") widget.hide();
+  else if (a === "lang") showLangMenu();
 });
 
 ipcMain.on("widget:dragstart", (e) => {
@@ -571,6 +615,27 @@ ipcMain.on("widget:dragend", (e) => {
   saveSettings();
 });
 
+// ---------- Ikon di system tray (untuk keluar tanpa terminal) ----------
+let tray = null;
+
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: "Tampilkan / sembunyikan widget", click: toggleWidget },
+    { label: "Pilih area gambar (Ctrl+Alt+J)", click: () => startCapture() },
+    { label: "Bahasa terjemahan", submenu: langItems() },
+    { type: "separator" },
+    { label: "Keluar", click: () => app.quit() },
+  ]);
+}
+
+function createTray() {
+  const img = nativeImage.createFromPath(path.join(__dirname, "build", "tray.png"));
+  tray = new Tray(img);
+  tray.setToolTip("Kanji Overlay");
+  tray.setContextMenu(buildTrayMenu());
+  tray.on("click", toggleWidget);
+}
+
 // ---------- Jendela transparan ----------
 async function createWindow() {
   win = new BrowserWindow({
@@ -589,7 +654,7 @@ async function createWindow() {
   await win.loadFile(path.join(__dirname, "popup.html"));
 }
 
-console.log("[kanji-overlay] build 12");
+console.log("[kanji-overlay] build 14");
 if (!app.requestSingleInstanceLock()) {
   console.log("[kanji-overlay] Sudah ada instance lain yang berjalan (kode lama?). " +
     "Tutup dulu dengan: taskkill /F /IM electron.exe  lalu jalankan lagi.");
@@ -601,6 +666,7 @@ app.whenReady().then(async () => {
   startHelper();
   await createWindow();
   await createWidget();
+  createTray();
   startMouseTracker();
   globalShortcut.register("Control+Alt+W", toggleWidget);
   const ok = globalShortcut.register(SHOW_KEY, () => trigger(false));

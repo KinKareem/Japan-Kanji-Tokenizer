@@ -1,5 +1,9 @@
 const pill = document.getElementById("pill");
 
+window.widget.onLang((code) => {
+  document.getElementById("lang").textContent = code.toUpperCase();
+});
+
 document.querySelectorAll("button[data-a]").forEach((b) => {
   b.addEventListener("click", () => {
     b.classList.remove("flash");

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+
+# data milik pengguna, dibuat saat aplikasi dijalankan
+settings.json
+tessdata/
+*.traineddata
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,48 @@
+name: Build dan Rilis
+
+on:
+  push:
+    tags: ["v*"]        # jalan otomatis saat kamu membuat tag, misalnya v0.3.0
+  workflow_dispatch:     # atau jalankan manual dari tab Actions
+
+permissions:
+  contents: write        # diperlukan untuk membuat Release dan mengunggah installer
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Tag v* -> bangun dan unggah ke GitHub Release
+      - name: Bangun dan rilis
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Jalankan manual -> bangun saja, hasilnya jadi artifact yang bisa diunduh
+      - name: Bangun saja
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npx electron-builder --publish never
+
+      - name: Unggah artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanji-overlay-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error
